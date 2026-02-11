@@ -66,7 +66,7 @@ $env:FAL_KEY = 'your-api-key-here'
 .\scripts\Search-FalModels.ps1 -Query 'flux'
 
 # Verify a specific model exists
-.\scripts\Get-FalModel.ps1 -Model 'fal-ai/flux/dev'
+.\scripts\Get-FalModel.ps1 -ModelId 'fal-ai/flux/dev'
 ```
 
 **Prevention:** Use the model constants from the documentation rather than hard-coding paths. Check the fal.ai model gallery for current endpoints.
@@ -78,7 +78,7 @@ $env:FAL_KEY = 'your-api-key-here'
 **Cause:** Request body contains invalid values (e.g., unsupported image size, negative guidance scale, or missing required fields).
 
 **Solution:**
-1. Check the model schema: `.\scripts\Get-ModelSchema.ps1 -Model 'fal-ai/flux/dev'`
+1. Check the model schema: `.\scripts\Get-ModelSchema.ps1 -ModelId 'fal-ai/flux/dev'`
 2. Verify parameter names match the API (use snake_case: `image_size`, `num_inference_steps`)
 3. Ensure numeric values are within valid ranges
 
@@ -298,7 +298,12 @@ Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
 Get-Module Pester -ListAvailable | Select-Object Version
 ```
 
-**Prevention:** The project includes `.pester.ps1` configuration — use `Invoke-Pester -Configuration .pester.ps1` to run tests with the correct settings.
+**Prevention:** The project includes `.pester.ps1` configuration — run tests with:
+
+```powershell
+$config = New-PesterConfiguration -Hashtable (& './tests/.pester.ps1')
+Invoke-Pester -Configuration $config
+```
 
 ### Mock Patterns
 

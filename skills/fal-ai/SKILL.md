@@ -40,11 +40,22 @@ Scripts import the module automatically. No manual setup needed.
 
 ## Available Scripts
 
-| Script                      | Purpose                              |
-|-----------------------------|--------------------------------------|
-| `Invoke-FalGenerate.ps1`    | Generate images/videos from text     |
-| `Test-FalConnection.ps1`    | Verify API key and connectivity      |
-| `Get-FalModel.ps1`          | Get model info and OpenAPI schema    |
+| Script                        | Purpose                                  |
+|-------------------------------|------------------------------------------|
+| `Invoke-FalGenerate.ps1`      | Generate images from text prompts        |
+| `Invoke-FalUpscale.ps1`       | AI-powered image upscaling               |
+| `Invoke-FalInpainting.ps1`    | Image inpainting with masks              |
+| `Invoke-FalVideoGen.ps1`      | Text-to-video generation                 |
+| `Invoke-FalImageToVideo.ps1`  | Animate still images to video            |
+| `Search-FalModels.ps1`        | Search available fal.ai models           |
+| `Get-FalModel.ps1`            | Get model info and OpenAPI schema        |
+| `Get-ModelSchema.ps1`         | Get model input/output schema            |
+| `Get-FalUsage.ps1`            | Check account usage and costs            |
+| `Get-QueueStatus.ps1`         | Check async request queue status         |
+| `Upload-ToFalCDN.ps1`         | Upload files to fal.ai CDN              |
+| `New-FalWorkflow.ps1`         | Define multi-step media workflows        |
+| `Test-FalConnection.ps1`      | Verify API key and connectivity          |
+| `Test-FalWorkflow.ps1`        | Validate workflow definitions            |
 
 ---
 

@@ -1,6 +1,6 @@
 # PowerShell Scripts Reference
 
-> **Note:** These scripts are planned for implementation. Parameters and behavior are subject to change as scripts are developed.
+Complete reference for all 20 PowerShell scripts and the shared module in the `scripts/` directory.
 
 ## Script Index
 
@@ -8,17 +8,26 @@
 |--------|----------|-------------|
 | [Invoke-FalGenerate](#invoke-falgenerate) | Generation | Text-to-image generation |
 | [Invoke-FalUpscale](#invoke-falupscale) | Processing | AI-powered image upscaling |
-| [Invoke-FalEditImage](#invoke-faleditimage) | Processing | Image editing (inpainting, outpainting) |
-| [Invoke-FalSearchModels](#invoke-falsearchmodels) | Discovery | Search available fal.ai models |
-| [Invoke-FalGetSchema](#invoke-falgetschema) | Discovery | Get model input/output schema |
-| [Invoke-FalUpload](#invoke-falupload) | Utility | Upload files to fal.ai storage |
-| [Invoke-FalSpeechToText](#invoke-falspeechtotext) | Audio | Transcribe audio to text |
-| [Invoke-FalTextToSpeech](#invoke-faltexttospeech) | Audio | Generate speech from text |
-| [Invoke-FalEstimateCost](#invoke-falestimatecost) | Billing | Estimate cost before execution |
-| [Invoke-FalPricing](#invoke-falpricing) | Billing | View model pricing information |
-| [Invoke-FalUsage](#invoke-falusage) | Billing | Check account usage and limits |
+| [Invoke-FalInpainting](#invoke-falinpainting) | Processing | Image inpainting with masks |
+| [Invoke-FalVideoGen](#invoke-falvideogen) | Video | Text-to-video generation |
+| [Invoke-FalImageToVideo](#invoke-falimage­tovideo) | Video | Image-to-video animation |
+| [Search-FalModels](#search-falmodels) | Discovery | Search available fal.ai models |
+| [Get-FalModel](#get-falmodel) | Discovery | Get model info and OpenAPI schema |
+| [Get-ModelSchema](#get-modelschema) | Discovery | Get model input/output schema |
+| [Get-FalUsage](#get-falusage) | Billing | Check account usage statistics |
+| [Get-QueueStatus](#get-queuestatus) | Utility | Check queue status of a request |
+| [Upload-ToFalCDN](#upload-tofalcdn) | Utility | Upload files to fal.ai CDN |
+| [Test-FalConnection](#test-falconnection) | Utility | Verify API key and connectivity |
 | [New-FalWorkflow](#new-falworkflow) | Workflow | Define multi-step media workflows |
-| [Invoke-FalRequests](#invoke-falrequests) | Utility | List and manage pending requests |
+| [Test-FalWorkflow](#test-falworkflow) | Workflow | Validate a workflow definition |
+| [Measure-ImageQuality](#measure-imagequality) | Quality | Analyze image quality metrics |
+| [Measure-VideoQuality](#measure-videoquality) | Quality | Analyze video quality metrics |
+| [Measure-ApiPerformance](#measure-apiperformance) | Quality | Benchmark API latency |
+| [Measure-ApiCost](#measure-apicost) | Quality | Analyze and project API costs |
+| [Measure-TokenBudget](#measure-tokenbudget) | Quality | Check SKILL.md token budgets |
+| [Test-ImageSorcery](#test-imagesorcery) | Utility | Verify ImageSorcery MCP tools |
+
+**Shared module:** `FalAi.psm1` — provides authentication, HTTP helpers, CDN upload, and queue polling. All scripts import it automatically.
 
 ---
 
@@ -34,15 +43,17 @@ Generate images from text prompts using fal.ai models.
 |-----------|------|----------|---------|-------------|
 | `-Prompt` | string | Yes | — | Text description of the image to generate |
 | `-Model` | string | No | `fal-ai/flux/dev` | Model identifier |
-| `-Steps` | int | No | 20 | Number of inference steps |
-| `-GuidanceScale` | float | No | 7.0 | Prompt adherence (1.0–20.0) |
-| `-Seed` | int | No | Random | Seed for reproducibility |
-| `-Width` | int | No | 1024 | Output width in pixels |
-| `-Height` | int | No | 1024 | Output height in pixels |
+| `-ImageSize` | string | No | `landscape_4_3` | Output size preset (e.g., `square_hd`, `landscape_4_3`, `portrait_4_3`) |
 | `-NumImages` | int | No | 1 | Number of images to generate |
-| `-OutputPath` | string | No | — | Local path to save the image |
+| `-Seed` | int | No | Random | Seed for reproducibility |
+| `-ImageUrl` | string | No | — | Input image URL (for image-to-image) |
+| `-Strength` | double | No | — | Denoising strength for image-to-image (0.0–1.0) |
+| `-NumInferenceSteps` | int | No | — | Number of inference steps |
+| `-GuidanceScale` | double | No | — | Prompt adherence strength |
+| `-EnableSafetyChecker` | switch | No | `$false` | Enable safety content filter |
+| `-Queue` | switch | No | `$false` | Submit via async queue instead of sync |
 
-**Returns:** Object with `url`, `seed`, `width`, `height`, `model`, `timings`
+**Returns:** Object with `images` (array of `{url, width, height, content_type}`), `seed`, `timings`, `has_nsfw_concepts`
 
 **Example:**
 
@@ -50,11 +61,11 @@ Generate images from text prompts using fal.ai models.
 # Basic generation
 Invoke-FalGenerate -Prompt "A red fox in a snowy forest"
 
-# With parameters
-Invoke-FalGenerate -Prompt "Mountain sunset" -Model "fal-ai/flux-pro" -Steps 30 -Seed 42 -OutputPath "./output/sunset.png"
+# With specific settings
+Invoke-FalGenerate -Prompt "Mountain sunset" -Model "fal-ai/flux-pro/v1.1-ultra" -Seed 42 -ImageSize square_hd
 
-# Multiple images
-Invoke-FalGenerate -Prompt "Abstract art" -NumImages 4
+# Multiple images via queue
+Invoke-FalGenerate -Prompt "Abstract art" -NumImages 4 -Queue
 ```
 
 ---
@@ -69,47 +80,97 @@ Upscale images using AI super-resolution models.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `-ImagePath` | string | Yes | — | Path to the input image |
-| `-ImageUrl` | string | Yes | — | URL of the input image (alternative to `-ImagePath`) |
-| `-Scale` | int | No | 2 | Upscale factor (2 or 4) |
-| `-Model` | string | No | Auto | Upscaling model to use |
-| `-OutputPath` | string | No | — | Local path to save the result |
+| `-ImageUrl` | string | Yes | — | URL of the input image |
+| `-Scale` | int | No | 2 | Upscale factor (`2` or `4`) |
+| `-Model` | string | No | `fal-ai/aura-sr` | Upscaling model to use |
+| `-Queue` | switch | No | `$false` | Submit via async queue |
 
-**Returns:** Object with `url`, `width`, `height`, `scale`, `timings`
+**Returns:** Object with `image` (`{url, width, height, content_type}`), `timings`
 
 **Example:**
 
 ```powershell
-Invoke-FalUpscale -ImagePath "./input/photo.jpg" -Scale 4 -OutputPath "./output/photo_4x.png"
+Invoke-FalUpscale -ImageUrl "https://example.com/photo.jpg" -Scale 4
 ```
 
-### Invoke-FalEditImage
+### Invoke-FalInpainting
 
-Edit images using inpainting, outpainting, or style transfer.
+Edit images using inpainting with a mask.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `-ImagePath` | string | Yes | — | Path to the input image |
-| `-Prompt` | string | Yes | — | Description of the edit |
-| `-MaskPath` | string | No | — | Path to mask image (for inpainting) |
-| `-Mode` | string | No | `inpaint` | Edit mode: `inpaint`, `outpaint`, `style` |
-| `-OutputPath` | string | No | — | Local path to save the result |
+| `-ImageUrl` | string | Yes | — | URL of the input image |
+| `-MaskUrl` | string | Yes | — | URL of the mask image |
+| `-Prompt` | string | Yes | — | Description of what to fill |
+| `-Model` | string | No | `fal-ai/inpainting` | Inpainting model |
+| `-Strength` | double | No | 0.85 | Denoising strength |
+| `-NumInferenceSteps` | int | No | 30 | Number of inference steps |
+| `-GuidanceScale` | double | No | 7.5 | Prompt adherence |
+| `-Queue` | switch | No | `$false` | Submit via async queue |
 
-**Returns:** Object with `url`, `mode`, `timings`
+**Returns:** Object with `images`, `seed`, `timings`
 
 **Example:**
 
 ```powershell
-Invoke-FalEditImage -ImagePath "./input/photo.jpg" -Prompt "Replace the sky with a sunset" -MaskPath "./masks/sky.png"
+Invoke-FalInpainting -ImageUrl $imgUrl -MaskUrl $maskUrl -Prompt "Replace the sky with a sunset"
+```
+
+---
+
+## Video
+
+### Invoke-FalVideoGen
+
+Generate video from a text prompt.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-Prompt` | string | Yes | — | Text description of the video |
+| `-Model` | string | No | `fal-ai/kling-video/v2.6/pro/text-to-video` | Video model |
+| `-Duration` | int | No | 5 | Duration in seconds |
+| `-AspectRatio` | string | No | `16:9` | Aspect ratio |
+| `-Queue` | bool | No | `$true` | Submit via async queue (enabled by default) |
+
+**Returns:** Object with `video` (`{url}`), `timings`
+
+**Example:**
+
+```powershell
+Invoke-FalVideoGen -Prompt "A drone shot flying over a mountain lake" -Duration 10
+```
+
+### Invoke-FalImageToVideo
+
+Animate a still image into a video.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-ImageUrl` | string | Yes | — | URL of the input image |
+| `-Prompt` | string | No | — | Motion description |
+| `-Model` | string | No | `fal-ai/kling-video/v2.6/pro/image-to-video` | Video model |
+| `-Duration` | int | No | 5 | Duration in seconds |
+| `-Queue` | bool | No | `$true` | Submit via async queue (enabled by default) |
+
+**Returns:** Object with `video` (`{url}`), `timings`
+
+**Example:**
+
+```powershell
+Invoke-FalImageToVideo -ImageUrl $imgUrl -Prompt "Slow zoom into the scene"
 ```
 
 ---
 
 ## Discovery
 
-### Invoke-FalSearchModels
+### Search-FalModels
 
 Search available models on fal.ai by keyword or category.
 
@@ -118,42 +179,89 @@ Search available models on fal.ai by keyword or category.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `-Query` | string | No | — | Search keyword |
-| `-Category` | string | No | — | Filter by category: `image`, `video`, `audio`, `text` |
-| `-Limit` | int | No | 20 | Maximum results to return |
+| `-Category` | string | No | — | Filter by category |
+| `-Limit` | int | No | 10 | Maximum results to return |
 
-**Returns:** Array of model objects with `id`, `name`, `description`, `category`
+**Returns:** Array of model objects with `id`, `title`, `category`, `description`
 
 **Example:**
 
 ```powershell
-Invoke-FalSearchModels -Query "upscale" -Category "image"
+Search-FalModels -Query "upscale" -Category "image"
 ```
 
-### Invoke-FalGetSchema
+### Get-FalModel
 
-Retrieve the input/output schema for a specific model.
+Get detailed information about a specific fal.ai model.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `-Model` | string | Yes | — | Model identifier |
+| `-ModelId` | string | Yes | — | Model identifier (e.g., `fal-ai/flux/dev`) |
+| `-InputOnly` | switch | No | — | Return only input schema |
+| `-OutputOnly` | switch | No | — | Return only output schema |
+
+**Returns:** Object with model metadata, `input_schema`, `output_schema`
+
+**Example:**
+
+```powershell
+Get-FalModel -ModelId "fal-ai/flux/dev"
+```
+
+### Get-ModelSchema
+
+Get the input/output schema for a specific model.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-ModelId` | string | Yes | — | Model identifier |
+| `-InputOnly` | switch | No | — | Return only input schema |
+| `-OutputOnly` | switch | No | — | Return only output schema |
 
 **Returns:** Object with `input_schema`, `output_schema` as JSON schema objects
 
 **Example:**
 
 ```powershell
-Invoke-FalGetSchema -Model "fal-ai/flux/dev"
+Get-ModelSchema -ModelId "fal-ai/flux/dev" -InputOnly
+```
+
+---
+
+## Billing
+
+### Get-FalUsage
+
+Check account usage statistics and cost breakdown.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-Days` | int | No | 30 | Number of days to query |
+| `-GroupBy` | string | No | `endpoint` | Group results by `endpoint` or `timeframe` |
+| `-Model` | string | No | — | Filter to a specific model |
+| `-Timeframe` | string | No | — | Time bucket: `minute`, `hour`, `day`, `week`, `month` |
+
+**Returns:** Object with `TotalCost`, `TotalRequests`, `ByEndpoint`, `StartDate`, `EndDate`
+
+**Example:**
+
+```powershell
+Get-FalUsage -Days 7 -GroupBy endpoint
 ```
 
 ---
 
 ## Utility
 
-### Invoke-FalUpload
+### Upload-ToFalCDN
 
-Upload a file to fal.ai storage for use in API calls.
+Upload a local file to fal.ai CDN storage for use in API calls.
 
 **Parameters:**
 
@@ -162,144 +270,62 @@ Upload a file to fal.ai storage for use in API calls.
 | `-FilePath` | string | Yes | — | Path to the file to upload |
 | `-ContentType` | string | No | Auto-detected | MIME type of the file |
 
-**Returns:** Object with `url`, `content_type`, `file_name`
+**Returns:** Object with `url`
 
 **Example:**
 
 ```powershell
-$uploaded = Invoke-FalUpload -FilePath "./input/photo.jpg"
-Invoke-FalEditImage -ImageUrl $uploaded.url -Prompt "Add a hat"
+$uploaded = Upload-ToFalCDN -FilePath "./input/photo.jpg"
+Invoke-FalInpainting -ImageUrl $uploaded.url -MaskUrl $maskUrl -Prompt "Add a hat"
 ```
 
-### Invoke-FalRequests
+### Get-QueueStatus
 
-List, check status, or cancel pending fal.ai requests.
+Check the queue status of an async fal.ai request.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `-Action` | string | No | `list` | Action: `list`, `status`, `cancel` |
-| `-RequestId` | string | No | — | Request ID (for `status` or `cancel`) |
-| `-Limit` | int | No | 10 | Maximum results for `list` |
+| `-RequestId` | string | Yes | — | Request ID from a queued submission |
+| `-Model` | string | Yes | — | The fal.ai model endpoint |
 
-**Returns:** Request object(s) with `id`, `status`, `model`, `created_at`
+**Returns:** Object with queue position, status, and logs
 
 **Example:**
 
 ```powershell
-# List recent requests
-Invoke-FalRequests
-
-# Check status
-Invoke-FalRequests -Action status -RequestId "req_abc123"
-
-# Cancel a request
-Invoke-FalRequests -Action cancel -RequestId "req_abc123"
+Get-QueueStatus -RequestId "abc-123" -Model "fal-ai/flux/dev"
 ```
 
----
+### Test-FalConnection
 
-## Audio
+Verify that the fal.ai API key is configured and the API is reachable. Takes no parameters.
 
-### Invoke-FalSpeechToText
+**Returns:** Object with `KeyFound`, `ApiReachable`, and diagnostic info
 
-Transcribe audio files to text.
+**Example:**
+
+```powershell
+Test-FalConnection
+```
+
+### Test-ImageSorcery
+
+Verify that ImageSorcery MCP tools are available and functioning.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `-AudioPath` | string | Yes | — | Path to the audio file |
-| `-AudioUrl` | string | Yes | — | URL of the audio (alternative to `-AudioPath`) |
-| `-Language` | string | No | Auto-detected | Language code (e.g., `en`, `es`, `fr`) |
+| `-TestImagePath` | string | No | — | Path to an image for testing |
 
-**Returns:** Object with `text`, `language`, `duration`, `segments`
+**Returns:** Test results with pass/fail counts
 
 **Example:**
 
 ```powershell
-Invoke-FalSpeechToText -AudioPath "./input/recording.mp3"
-```
-
-### Invoke-FalTextToSpeech
-
-Generate speech audio from text.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `-Text` | string | Yes | — | Text to convert to speech |
-| `-Voice` | string | No | Default | Voice identifier |
-| `-OutputPath` | string | No | — | Local path to save the audio |
-
-**Returns:** Object with `url`, `duration`, `voice`
-
-**Example:**
-
-```powershell
-Invoke-FalTextToSpeech -Text "Hello, welcome to our product demo." -OutputPath "./output/welcome.mp3"
-```
-
----
-
-## Billing
-
-### Invoke-FalEstimateCost
-
-Estimate the cost of an operation before executing it.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `-Model` | string | Yes | — | Model identifier |
-| `-Parameters` | hashtable | No | Defaults | Operation parameters |
-
-**Returns:** Object with `estimated_cost`, `currency`, `model`, `breakdown`
-
-**Example:**
-
-```powershell
-Invoke-FalEstimateCost -Model "fal-ai/flux-pro" -Parameters @{ steps = 50; width = 2048; height = 2048 }
-```
-
-### Invoke-FalPricing
-
-View pricing information for fal.ai models.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `-Model` | string | No | — | Specific model (omit for all models) |
-| `-Category` | string | No | — | Filter by category |
-
-**Returns:** Array of pricing objects with `model`, `price_per_request`, `price_per_second`
-
-**Example:**
-
-```powershell
-Invoke-FalPricing -Category "image"
-```
-
-### Invoke-FalUsage
-
-Check account usage statistics and remaining limits.
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `-Period` | string | No | `current` | Billing period: `current`, `previous`, or date string |
-
-**Returns:** Object with `total_cost`, `requests`, `period`, `limits`
-
-**Example:**
-
-```powershell
-Invoke-FalUsage -Period current
+Test-ImageSorcery -TestImagePath "./test-image.png"
 ```
 
 ---
@@ -308,27 +334,150 @@ Invoke-FalUsage -Period current
 
 ### New-FalWorkflow
 
-Define a reusable multi-step media workflow.
+Define and execute a multi-step media workflow with dependency resolution.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `-Name` | string | Yes | — | Workflow name |
-| `-Steps` | array | Yes | — | Ordered list of step definitions |
-| `-Checkpoint` | switch | No | `$false` | Enable checkpointing |
-| `-OutputDir` | string | No | `./output` | Directory for workflow outputs |
+| `-Steps` | hashtable[] | Yes | — | Array of step definitions |
+| `-Description` | string | No | — | Workflow description |
 
-**Returns:** Workflow definition object
+Each step hashtable uses the format: `@{ name = 'stepId'; model = 'fal-ai/...'; params = @{...}; dependsOn = @('otherStep') }`
+
+**Returns:** Workflow execution results with step outputs
 
 **Example:**
 
 ```powershell
 $steps = @(
-    @{ action = "generate"; prompt = "Product photo"; model = "fal-ai/flux-pro"; seed = 42 },
-    @{ action = "upscale"; scale = 2 },
-    @{ action = "resize"; width = 1200; height = 1200 }
+    @{ name = 'gen'; model = 'fal-ai/flux/dev'; params = @{ prompt = 'Product photo'; seed = 42 }; dependsOn = @() },
+    @{ name = 'upscale'; model = 'fal-ai/aura-sr'; params = @{ scale = 2 }; dependsOn = @('gen') }
 )
 
-New-FalWorkflow -Name "product-photo" -Steps $steps -Checkpoint
+New-FalWorkflow -Name "product-photo" -Steps $steps
+```
+
+### Test-FalWorkflow
+
+Validate a workflow definition without executing it. Checks for structural errors, invalid model names, dependency cycles, and parameter issues.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-Steps` | hashtable[] | Yes* | — | Array of step definitions (inline) |
+| `-Path` | string | Yes* | — | Path to a JSON workflow file |
+| `-DryRun` | switch | No | Default | Full validation without API calls |
+
+*One of `-Steps` or `-Path` is required.
+
+**Returns:** Object with `Valid` (bool), `Errors`, `Warnings`, `StepCount`, `ExecutionOrder`
+
+**Example:**
+
+```powershell
+Test-FalWorkflow -Steps $steps
+Test-FalWorkflow -Path './my-workflow.json'
+```
+
+---
+
+## Quality & Measurement
+
+### Measure-ImageQuality
+
+Analyze image quality metrics (resolution, file size, format, and optional SSIM comparison).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-ImagePath` | string | Yes | — | Path to the image file |
+| `-ReferenceImagePath` | string | No | — | Reference image for comparison |
+| `-Prompt` | string | No | — | Original prompt (for relevance scoring) |
+| `-OutputFormat` | string | No | `PSObject` | Output as `PSObject` or `JSON` |
+| `-Threshold` | hashtable | No | `@{}` | Custom quality thresholds |
+
+**Example:**
+
+```powershell
+Measure-ImageQuality -ImagePath "./output/result.png" -Prompt "A red fox"
+```
+
+### Measure-VideoQuality
+
+Analyze video quality metrics (resolution, duration, format, codec).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-VideoPath` | string | Yes | — | Path to the video file |
+| `-ReferenceVideoPath` | string | No | — | Reference video for comparison |
+| `-OutputFormat` | string | No | `PSObject` | Output as `PSObject` or `JSON` |
+
+**Example:**
+
+```powershell
+Measure-VideoQuality -VideoPath "./output/video.mp4"
+```
+
+### Measure-ApiPerformance
+
+Benchmark fal.ai API latency by running multiple requests.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-Model` | string | No | `fal-ai/flux/dev` | Model to benchmark |
+| `-Prompt` | string | No | `A simple test image...` | Test prompt |
+| `-Iterations` | int | No | 5 | Number of requests (1–100) |
+| `-OutputPath` | string | No | — | Path to save JSON results |
+
+**Example:**
+
+```powershell
+Measure-ApiPerformance -Model "fal-ai/flux/schnell" -Iterations 10
+```
+
+### Measure-ApiCost
+
+Analyze fal.ai API costs and project monthly spending from usage data.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-UsageData` | PSObject | Yes | — | Output from `Get-FalUsage` |
+| `-BudgetLimit` | double | No | — | Monthly budget cap in USD |
+| `-OutputPath` | string | No | — | Path to write JSON results |
+
+**Example:**
+
+```powershell
+$usage = Get-FalUsage -Days 30
+Measure-ApiCost -UsageData $usage -BudgetLimit 50
+```
+
+### Measure-TokenBudget
+
+Check SKILL.md files against token and line budgets.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `-Path` | string | Yes | — | Path to a SKILL.md file or directory |
+| `-MaxTokens` | int | No | 6500 | Maximum token budget |
+| `-MaxLines` | int | No | 500 | Maximum line count |
+| `-TokensPerLine` | double | No | 13.0 | Estimated tokens per line |
+| `-OutputFormat` | string | No | `Table` | Output as `Table` or `JSON` |
+
+**Example:**
+
+```powershell
+Measure-TokenBudget -Path ./skills/fal-ai/SKILL.md
 ```

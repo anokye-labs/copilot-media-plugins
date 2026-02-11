@@ -68,7 +68,7 @@ jobs:
           Invoke-Pester -Configuration $config
 
       - name: Run integration tests
-        if: env.FAL_KEY != ''
+        if: ${{ secrets.FAL_KEY != '' }}
         shell: pwsh
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}

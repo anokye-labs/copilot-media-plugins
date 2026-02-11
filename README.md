@@ -105,6 +105,7 @@ The extension is organized into **three skills**, a **shared module**, and **fle
 | `Get-QueueStatus.ps1` | Check queue job status |
 | `Search-FalModels.ps1` | Search the fal.ai model catalog |
 | `Test-FalConnection.ps1` | Verify API key and connectivity |
+| `Test-FalWorkflow.ps1` | Test multi-step workflow execution |
 | `Test-ImageSorcery.ps1` | Verify ImageSorcery MCP connection |
 | `Upload-ToFalCDN.ps1` | Upload files to fal.ai CDN |
 | `New-FalWorkflow.ps1` | Create multi-step generation workflows |

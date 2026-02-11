@@ -36,6 +36,16 @@ $ErrorActionPreference = 'Stop'
 $modulePath = Join-Path $PSScriptRoot 'FalAi.psm1'
 Import-Module $modulePath -Force
 
+# ─── Validate steps ──────────────────────────────────────────────────────────
+foreach ($step in $Steps) {
+    if (-not $step.ContainsKey('name') -or [string]::IsNullOrWhiteSpace($step['name'])) {
+        throw "Each workflow step must have a 'name' field. Example: @{ name = 'step1'; model = 'fal-ai/flux/dev'; params = @{ prompt = '...' } }"
+    }
+    if (-not $step.ContainsKey('model') -or [string]::IsNullOrWhiteSpace($step['model'])) {
+        throw "Step '$($step['name'] ?? '(unnamed)')' is missing the required 'model' field."
+    }
+}
+
 # ─── Resolve execution order via topological sort ────────────────────────────
 function Resolve-StepOrder {
     param([hashtable[]]$Steps)

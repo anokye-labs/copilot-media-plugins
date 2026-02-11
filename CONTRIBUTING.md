@@ -76,8 +76,9 @@ copilot-media-plugins/
 │   └── *.ps1         # Individual command scripts
 ├── skills/           # Copilot skill definitions
 │   ├── fal-ai/       # AI generation skill
+│   ├── fal-workflow/  # Multi-step workflow skill
 │   ├── image-sorcery/ # Local image processing skill
-│   └── media-agents/ # Multi-step workflow skill
+│   └── media-agents/ # Fleet-pattern orchestration skill
 ├── tests/            # Test suites
 │   ├── unit/         # Unit tests
 │   ├── integration/  # Integration tests

@@ -355,11 +355,10 @@ See `docs/RESEARCH_INSIGHTS.md` for complete research findings.
 
 ## 📚 Project Resources
 
-### Planning Documentation
-- **planning/overview.md** - Project mission and scope
-- **planning/phases.md** - 10 phases with 100+ tasks
-- **planning/dependencies.md** - Dependency matrix
-- **planning/technical-decisions.md** - 30+ key decisions
+### Documentation
+- **[README.md](README.md)** - Project overview, setup, and architecture
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture and design
+- **[docs/RESEARCH_INSIGHTS.md](docs/RESEARCH_INSIGHTS.md)** - Research findings and best practices
 
 ### GitHub Issues
 - **Epics:** https://github.com/anokye-labs/copilot-media-plugins/labels/epic
@@ -388,7 +387,7 @@ gh issue close <number> --repo anokye-labs/copilot-media-plugins --comment "Comp
 
 ## 🚀 Getting Started
 
-1. **Review planning docs** in `planning/` folder
+1. **Review project docs** in `docs/` folder and `README.md`
 2. **Find your issue** using gh CLI
 3. **Reference issue** in your session
 4. **Follow error handling patterns** documented above

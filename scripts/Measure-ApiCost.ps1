@@ -29,6 +29,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# ─── Validate required fields ───────────────────────────────────────────────
+$requiredFields = @('StartDate', 'EndDate', 'TotalCost', 'TotalRequests')
+foreach ($field in $requiredFields) {
+    if (-not $UsageData.PSObject.Properties[$field] -or [string]::IsNullOrWhiteSpace($UsageData.$field)) {
+        throw "UsageData is missing required field '$field'. Pass output from Get-FalUsage.ps1."
+    }
+}
+
 # ─── Parse date range ───────────────────────────────────────────────────────
 $startDate = [datetime]::Parse($UsageData.StartDate)
 $endDate   = [datetime]::Parse($UsageData.EndDate)

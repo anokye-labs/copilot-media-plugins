@@ -534,4 +534,4 @@ All research conducted via **Perplexity AI** on **2026-02-06**
 ---
 
 *Last Updated: 2026-02-06*  
-*For implementation details, see [phases.md](./phases.md)*
+*For implementation details, see the [project README](../README.md)*

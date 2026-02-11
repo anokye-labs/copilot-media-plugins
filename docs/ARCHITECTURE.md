@@ -118,7 +118,7 @@ All fal.ai scripts share a single PowerShell module (`scripts/FalAi.psm1`) that 
 **Design decisions:**
 - Scripts import the module; no manual setup needed.
 - API key resolution follows a priority chain: `$env:FAL_KEY` → `.env` file → error.
-- Retry logic uses exponential backoff (1s → 2s → 4s) with a maximum of 3 attempts.
+- Retry logic uses exponential backoff (2s → 4s → 8s) with a maximum of 3 attempts.
 - All HTTP responses are parsed into `PSCustomObject` for consistent downstream handling.
 
 ## Data Flow
