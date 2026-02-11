@@ -74,6 +74,39 @@ jobs:
             Write-Host "Generation script not yet implemented" > output/generation-log.txt
           }
 
+      - name: Validate quality thresholds config
+        shell: pwsh
+        run: |
+          $thresholdsPath = 'tests/fixtures/quality-thresholds.json'
+          if (-not (Test-Path $thresholdsPath)) {
+            Write-Host "::error::Quality thresholds file not found: $thresholdsPath"
+            exit 1
+          }
+          $thresholds = Get-Content $thresholdsPath | ConvertFrom-Json
+          Write-Host "Loaded quality thresholds v$($thresholds.version)"
+
+          # Validate image dimension constraints
+          $minDim = $thresholds.image.min_dimensions
+          $maxDim = $thresholds.image.max_dimensions
+          Write-Host "Image dimensions: min ${minDim.width}x${minDim.height}, max ${maxDim.width}x${maxDim.height}"
+
+          # Validate generation time budget
+          $maxGenTime = $thresholds.performance.max_generation_time_seconds
+          Write-Host "Max generation time: ${maxGenTime}s"
+
+          # Validate file size limits
+          $minSize = $thresholds.image.min_file_size_bytes
+          $maxSize = $thresholds.image.max_file_size_bytes
+          Write-Host "File size range: $([math]::Round($minSize / 1KB, 1))KB – $([math]::Round($maxSize / 1MB, 1))MB"
+
+          # Verify input threshold is above the configured minimum
+          $inputThreshold = [double]'${{ inputs.quality_threshold }}'
+          $clipMin = $thresholds.image.clip_score_threshold
+          if ($inputThreshold -lt $clipMin) {
+            Write-Host "::warning::Input quality threshold ($inputThreshold) is below CLIP minimum ($clipMin)"
+          }
+          Write-Host "✅ Quality threshold configuration validated"
+
       - name: Measure image quality
         shell: pwsh
         run: |

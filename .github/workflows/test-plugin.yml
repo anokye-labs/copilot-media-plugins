@@ -41,21 +41,29 @@ jobs:
           Import-Module Pester
           Write-Host "Pester version: $((Get-Module Pester).Version)"
 
-      - name: Run unit tests
+      - name: Run tests via .pester.ps1 config
+        shell: pwsh
+        run: |
+          $configData = & './tests/.pester.ps1'
+          $config = New-PesterConfiguration -Hashtable $configData
+          # Override paths for unit-only run
+          $config.Run.Path = './tests/unit'
+          $config.TestResult.OutputPath = './tests/unit-results.xml'
+          $config.CodeCoverage.OutputPath = './tests/unit-coverage.xml'
+
+          Invoke-Pester -Configuration $config
+
+      - name: Run gate tests
         shell: pwsh
         run: |
           $config = New-PesterConfiguration
-          $config.Run.Path = './tests/unit'
+          $config.Run.Path = './tests/gates'
           $config.Run.ExcludePath = './tests/fixtures'
           $config.Output.Verbosity = 'Detailed'
           $config.Output.CIFormat = 'GitHubActions'
           $config.TestResult.Enabled = $true
           $config.TestResult.OutputFormat = 'NUnitXml'
-          $config.TestResult.OutputPath = './tests/unit-results.xml'
-          $config.CodeCoverage.Enabled = $true
-          $config.CodeCoverage.Path = './scripts'
-          $config.CodeCoverage.OutputFormat = 'JaCoCo'
-          $config.CodeCoverage.OutputPath = './tests/unit-coverage.xml'
+          $config.TestResult.OutputPath = './tests/gate-results.xml'
 
           Invoke-Pester -Configuration $config
 
@@ -83,6 +91,7 @@ jobs:
           name: test-results-ps${{ matrix.powershell }}
           path: |
             tests/unit-results.xml
+            tests/gate-results.xml
             tests/integration-results.xml
           retention-days: 30
 
