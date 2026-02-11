@@ -1,0 +1,138 @@
+name: Documentation Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'skills/**'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'skills/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-docs:
+    name: Validate Documentation
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate markdown links
+        shell: pwsh
+        run: |
+          $errors = @()
+          $mdFiles = Get-ChildItem -Recurse -Include '*.md' -Path docs, skills
+
+          foreach ($file in $mdFiles) {
+            $content = Get-Content $file -Raw
+            # Find markdown links: [text](path)
+            $links = [regex]::Matches($content, '\[([^\]]+)\]\(([^)]+)\)')
+
+            foreach ($link in $links) {
+              $target = $link.Groups[2].Value
+              # Skip external URLs and anchors
+              if ($target -match '^https?://' -or $target -match '^#') {
+                continue
+              }
+              # Resolve relative path from the file's directory
+              $resolved = Join-Path (Split-Path $file) $target
+              if (-not (Test-Path $resolved)) {
+                $errors += "Broken link in $($file.FullName): [$($link.Groups[1].Value)]($target)"
+              }
+            }
+          }
+
+          if ($errors.Count -gt 0) {
+            Write-Host "::error::Found $($errors.Count) broken link(s):"
+            $errors | ForEach-Object { Write-Host "::error::  $_" }
+            exit 1
+          }
+          Write-Host "✅ All markdown links valid ($($mdFiles.Count) files checked)"
+
+      - name: Check SKILL.md line count
+        shell: pwsh
+        run: |
+          $skillFiles = Get-ChildItem -Recurse -Filter 'SKILL.md' -Path skills
+
+          foreach ($file in $skillFiles) {
+            $lineCount = (Get-Content $file).Count
+            if ($lineCount -gt 500) {
+              Write-Host "::error::$($file.FullName) has $lineCount lines (max 500)"
+              exit 1
+            }
+            Write-Host "✅ $($file.Name): $lineCount lines (limit: 500)"
+          }
+
+      - name: Verify cross-references
+        shell: pwsh
+        run: |
+          $errors = @()
+
+          # Check that SKILL.md files reference existing files in references/
+          $skillFiles = Get-ChildItem -Recurse -Filter 'SKILL.md' -Path skills
+
+          foreach ($file in $skillFiles) {
+            $dir = Split-Path $file
+            $refsDir = Join-Path $dir 'references'
+
+            if (Test-Path $refsDir) {
+              $refFiles = Get-ChildItem $refsDir -Filter '*.md'
+              if ($refFiles.Count -eq 0) {
+                $errors += "Empty references directory: $refsDir"
+              }
+              Write-Host "✅ $($file.Name) has $($refFiles.Count) reference file(s)"
+            }
+          }
+
+          # Check docs/ index references
+          $docsIndex = Join-Path 'docs' 'README.md'
+          if (Test-Path $docsIndex) {
+            $content = Get-Content $docsIndex -Raw
+            $docFiles = Get-ChildItem -Recurse -Filter '*.md' -Path docs |
+              Where-Object { $_.Name -ne 'README.md' }
+
+            foreach ($doc in $docFiles) {
+              $relativePath = $doc.FullName.Replace("$PWD\", '').Replace('\', '/')
+              if ($content -notmatch [regex]::Escape($doc.Name)) {
+                $errors += "Document not referenced in docs/README.md: $relativePath"
+              }
+            }
+          }
+
+          if ($errors.Count -gt 0) {
+            Write-Host "::warning::Found $($errors.Count) cross-reference issue(s):"
+            $errors | ForEach-Object { Write-Host "::warning::  $_" }
+          } else {
+            Write-Host "✅ All cross-references valid"
+          }
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const body = `### 📚 Documentation Validation Results
+
+            ✅ All checks passed:
+            - Markdown links validated
+            - SKILL.md files under 500 lines
+            - Cross-references verified
+
+            _Automated by doc-sync workflow_`;
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body
+            });

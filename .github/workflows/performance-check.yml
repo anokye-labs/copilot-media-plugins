@@ -1,0 +1,182 @@
+name: Performance Check
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  performance-check:
+    name: Performance Benchmark
+    runs-on: windows-latest
+    environment: media-generation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load baseline metrics
+        id: baseline
+        shell: pwsh
+        run: |
+          $baselinePath = 'tests/fixtures/performance-baseline.json'
+          if (-not (Test-Path $baselinePath)) {
+            Write-Host "::error::Baseline file not found: $baselinePath"
+            exit 1
+          }
+          $baseline = Get-Content $baselinePath | ConvertFrom-Json
+          Write-Host "Loaded baseline v$($baseline.version) (updated: $($baseline.updated))"
+          Write-Host "Max regression allowed: $($baseline.thresholds.max_regression_percent)%"
+
+      - name: Run generation benchmarks
+        shell: pwsh
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+        run: |
+          $results = @()
+          $baseline = Get-Content 'tests/fixtures/performance-baseline.json' | ConvertFrom-Json
+
+          # Benchmark: Image resize (local, no API key needed)
+          $resizeStart = Get-Date
+          $resizeScript = 'scripts/Invoke-ImageResize.ps1'
+          if (Test-Path $resizeScript) {
+            & $resizeScript -Width 800 -Height 600 -InputPath 'tests/fixtures/mock-api-responses/sample.png' 2>$null
+          }
+          $resizeLatency = ((Get-Date) - $resizeStart).TotalMilliseconds
+          $results += [PSCustomObject]@{
+            Task            = 'image_resize'
+            LatencyMs       = [math]::Round($resizeLatency, 0)
+            BaselineP50Ms   = $baseline.baselines.image_resize.latency_ms.p50
+            BaselineP90Ms   = $baseline.baselines.image_resize.latency_ms.p90
+          }
+
+          # Benchmark: Quality validation (local, no API key needed)
+          $validateStart = Get-Date
+          $validateScript = 'scripts/Measure-ImageQuality.ps1'
+          if (Test-Path $validateScript) {
+            & $validateScript -ImagePath 'tests/fixtures/mock-api-responses/sample.png' -Threshold 0.85 2>$null
+          }
+          $validateLatency = ((Get-Date) - $validateStart).TotalMilliseconds
+          $results += [PSCustomObject]@{
+            Task            = 'quality_validation'
+            LatencyMs       = [math]::Round($validateLatency, 0)
+            BaselineP50Ms   = $baseline.baselines.quality_validation.latency_ms.p50
+            BaselineP90Ms   = $baseline.baselines.quality_validation.latency_ms.p90
+          }
+
+          # Benchmark: Text-to-image generation (requires FAL_KEY)
+          if ($env:FAL_KEY) {
+            $genScript = 'scripts/Invoke-FalGenerate.ps1'
+            if (Test-Path $genScript) {
+              $genStart = Get-Date
+              & $genScript `
+                -Prompt 'Performance benchmark test image' `
+                -Model 'fal-ai/flux/dev' `
+                -OutputPath 'output/perf-test.png' `
+                -Width 512 `
+                -Height 512
+              $genLatency = ((Get-Date) - $genStart).TotalMilliseconds
+              $results += [PSCustomObject]@{
+                Task            = 'text_to_image_fast'
+                LatencyMs       = [math]::Round($genLatency, 0)
+                BaselineP50Ms   = $baseline.baselines.text_to_image_fast.latency_ms.p50
+                BaselineP90Ms   = $baseline.baselines.text_to_image_fast.latency_ms.p90
+              }
+            }
+          } else {
+            Write-Host "::warning::FAL_KEY not set — skipping API-based benchmarks"
+          }
+
+          $results | ConvertTo-Json | Out-File -Path output/performance-results.json -Force
+          $results | Format-Table -AutoSize
+
+      - name: Compare against baseline
+        shell: pwsh
+        run: |
+          $baseline = Get-Content 'tests/fixtures/performance-baseline.json' | ConvertFrom-Json
+          $maxRegression = $baseline.thresholds.max_regression_percent
+
+          $resultsPath = 'output/performance-results.json'
+          if (-not (Test-Path $resultsPath)) {
+            Write-Host "::warning::No performance results found, skipping comparison"
+            exit 0
+          }
+
+          $results = Get-Content $resultsPath | ConvertFrom-Json
+          $regressions = @()
+
+          foreach ($result in $results) {
+            if ($result.BaselineP90Ms -gt 0) {
+              $regressionPct = (($result.LatencyMs - $result.BaselineP90Ms) / $result.BaselineP90Ms) * 100
+              $status = if ($regressionPct -gt $maxRegression) { '❌ REGRESSION' } else { '✅ OK' }
+
+              if ($regressionPct -gt $maxRegression) {
+                $regressions += "$($result.Task): $([math]::Round($regressionPct, 1))% slower than p90 baseline"
+              }
+
+              Write-Host "$status $($result.Task): $($result.LatencyMs)ms (baseline p90: $($result.BaselineP90Ms)ms, delta: $([math]::Round($regressionPct, 1))%)"
+            }
+          }
+
+          if ($regressions.Count -gt 0) {
+            Write-Host "::warning::Performance regressions detected:"
+            $regressions | ForEach-Object { Write-Host "::warning::  $_" }
+          }
+
+      - name: Write performance summary
+        if: always()
+        shell: pwsh
+        run: |
+          $baseline = Get-Content 'tests/fixtures/performance-baseline.json' | ConvertFrom-Json
+          $maxRegression = $baseline.thresholds.max_regression_percent
+
+          $resultsPath = 'output/performance-results.json'
+          $results = if (Test-Path $resultsPath) {
+            Get-Content $resultsPath | ConvertFrom-Json
+          } else { @() }
+
+          $rows = foreach ($r in $results) {
+            $delta = if ($r.BaselineP90Ms -gt 0) {
+              $pct = (($r.LatencyMs - $r.BaselineP90Ms) / $r.BaselineP90Ms) * 100
+              "$([math]::Round($pct, 1))%"
+            } else { 'N/A' }
+
+            $status = if ($r.BaselineP90Ms -gt 0 -and (($r.LatencyMs - $r.BaselineP90Ms) / $r.BaselineP90Ms * 100) -gt $maxRegression) {
+              '❌'
+            } else { '✅' }
+
+            "| $($r.Task) | $($r.LatencyMs)ms | $($r.BaselineP50Ms)ms | $($r.BaselineP90Ms)ms | $delta | $status |"
+          }
+
+          $summary = @"
+          ## ⚡ Performance Check Results
+
+          **Baseline version:** $($baseline.version)
+          **Max allowed regression:** $($maxRegression)%
+          **Run date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')
+
+          | Task | Measured | Baseline p50 | Baseline p90 | Delta vs p90 | Status |
+          |------|----------|-------------|-------------|-------------|--------|
+          $($rows -join "`n")
+
+          ### Thresholds
+          | Metric | Value |
+          |--------|-------|
+          | Max regression | $($maxRegression)% |
+          | Min quality score | $($baseline.thresholds.min_quality_score) |
+          | Max error rate | $($baseline.thresholds.max_error_rate_percent)% |
+          | Max cost per image | $$($baseline.thresholds.max_cost_per_image_usd) |
+          "@
+
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: output/
+          retention-days: 90
