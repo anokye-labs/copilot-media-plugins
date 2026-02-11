@@ -126,16 +126,66 @@ The extension is organized into **three skills**, a **shared module**, and **fle
 | [`docs/security/`](docs/security/) | Security practices and key management |
 | [`docs/ci-cd/`](docs/ci-cd/) | CI/CD pipeline documentation |
 | [`skills/fal-ai/SKILL.md`](skills/fal-ai/SKILL.md) | fal.ai skill reference |
+| [`skills/fal-workflow/SKILL.md`](skills/fal-workflow/SKILL.md) | Multi-step pipeline workflows |
 | [`skills/image-sorcery/SKILL.md`](skills/image-sorcery/SKILL.md) | ImageSorcery skill reference |
 | [`skills/media-agents/SKILL.md`](skills/media-agents/SKILL.md) | Media agents workflow patterns |
 
-## Testing
+## Project Structure
+
+```
+copilot-media-plugins/
+├── scripts/                  # PowerShell scripts and shared module
+│   ├── FalAi.psm1            # Shared module (auth, HTTP, uploads, queue)
+│   ├── Invoke-Fal*.ps1       # Generation scripts (image, video, inpainting, upscale)
+│   ├── Get-Fal*.ps1          # Discovery scripts (models, schema, usage, queue)
+│   ├── Search-FalModels.ps1  # Model catalog search
+│   ├── New-FalWorkflow.ps1   # Multi-step workflow builder
+│   ├── Upload-ToFalCDN.ps1   # CDN upload utility
+│   ├── Measure-*.ps1         # Quality and performance measurement
+│   └── Test-*.ps1            # Connectivity verification
+├── skills/                   # Copilot skill definitions
+│   ├── fal-ai/               # AI generation skill
+│   ├── fal-workflow/         # Multi-step pipeline skill
+│   ├── image-sorcery/        # Local image processing skill
+│   └── media-agents/         # Fleet-pattern workflow orchestration
+├── tests/                    # Test suites
+│   ├── unit/                 # Unit tests (mocked API calls)
+│   ├── integration/          # Integration tests (live API)
+│   ├── e2e/                  # End-to-end tests
+│   ├── evaluation/           # Quality evaluation tests
+│   ├── gates/                # Quality gate checks
+│   ├── fixtures/             # Test data and baselines
+│   ├── helpers/              # Shared test utilities
+│   └── .pester.ps1           # Pester configuration
+├── docs/                     # Documentation
+│   ├── architecture/         # System design
+│   ├── api-reference/        # API and script reference
+│   ├── user-guides/          # How-to guides
+│   ├── examples-gallery/     # Example workflows
+│   ├── security/             # Security practices
+│   ├── ci-cd/                # CI/CD documentation
+│   └── releases/             # Release plans
+├── .github/                  # GitHub configuration
+│   ├── workflows/            # CI/CD workflows
+│   ├── ISSUE_TEMPLATE/       # Issue templates
+│   └── copilot-instructions.md
+├── .mcp.json                 # MCP server configuration
+├── CONTRIBUTING.md            # Contribution guidelines
+├── SECURITY.md                # Security policy
+└── README.md                  # This file
+```
+
+## Running Tests
 
 Tests use [Pester 5](https://pester.dev/) and are organized by tier:
 
 ```powershell
-# Run all tests
-Invoke-Pester -Path tests/
+# Install Pester (if needed)
+Install-Module -Name Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force
+
+# Run all tests with the project config
+$config = New-PesterConfiguration -Hashtable (& './tests/.pester.ps1')
+Invoke-Pester -Configuration $config
 
 # Run by tier
 Invoke-Pester -Path tests/unit/
@@ -146,7 +196,31 @@ Invoke-Pester -Path tests/e2e/
 Invoke-Pester -Path tests/gates/
 ```
 
-See [`tests/`](tests/) for test fixtures, helpers, and evaluation scripts.
+**Test coverage** targets `scripts/` and outputs JaCoCo format to `tests/coverage.xml`. Results are written in NUnit XML to `tests/results.xml`.
+
+| Tier | Directory | Requires API Key | Description |
+|------|-----------|:-:|-------------|
+| Unit | `tests/unit/` | No | Mocked API calls, fast |
+| Integration | `tests/integration/` | Yes | Live fal.ai API calls |
+| E2E | `tests/e2e/` | Yes | Full pipeline tests |
+| Gates | `tests/gates/` | No | Structural quality checks |
+| Evaluation | `tests/evaluation/` | No | Quality metric validation |
+
+## Evaluation & Quality
+
+The [`tests/evaluation/`](tests/evaluation/) directory contains tests that validate quality metrics:
+
+| Suite | What It Measures |
+|-------|-----------------|
+| `ImageQuality.Tests.ps1` | CLIP score, SSIM, brightness, contrast, entropy |
+| `VideoQuality.Tests.ps1` | Temporal consistency (T-SSIM), frame quality, FPS |
+| `PerformanceBaseline.Tests.ps1` | P50/P95/P99 latency, queue wait times |
+| `CostTracking.Tests.ps1` | Per-request cost, daily/monthly projections |
+| `TokenBudget.Tests.ps1` | Skill file line/token budget compliance |
+
+Thresholds are defined in [`tests/fixtures/quality-thresholds.json`](tests/fixtures/quality-thresholds.json). Measurement scripts (`Measure-ImageQuality.ps1`, `Measure-VideoQuality.ps1`, `Measure-ApiPerformance.ps1`, `Measure-ApiCost.ps1`, `Measure-TokenBudget.ps1`) can also be run standalone.
+
+See [`tests/evaluation/README.md`](tests/evaluation/README.md) for full details.
 
 ## Contributing
 
