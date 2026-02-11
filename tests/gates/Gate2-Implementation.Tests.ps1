@@ -8,19 +8,19 @@ Describe 'Gate 2: Implementation' {
             'scripts/FalAi.psm1' | Should -Exist
         }
 
-        It 'FalAi.psm1 exports Invoke-FalAiApi function' {
+        It 'FalAi.psm1 exports Invoke-FalApi function' {
             $content = Get-Content 'scripts/FalAi.psm1' -Raw
-            $content | Should -Match 'function\s+Invoke-FalAiApi'
+            $content | Should -Match 'function\s+Invoke-FalApi'
         }
 
-        It 'FalAi.psm1 exports Get-FalAiModels function' {
+        It 'FalAi.psm1 exports Get-FalApiKey function' {
             $content = Get-Content 'scripts/FalAi.psm1' -Raw
-            $content | Should -Match 'function\s+Get-FalAiModels'
+            $content | Should -Match 'function\s+Get-FalApiKey'
         }
 
-        It 'FalAi.psm1 exports New-FalAiRequest function' {
+        It 'FalAi.psm1 exports Send-FalFile function' {
             $content = Get-Content 'scripts/FalAi.psm1' -Raw
-            $content | Should -Match 'function\s+New-FalAiRequest'
+            $content | Should -Match 'function\s+Send-FalFile'
         }
     }
 
