@@ -1,0 +1,95 @@
+name: Test Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  test:
+    name: Run Pester Tests
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        powershell: ['7.4', '7.5']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell ${{ matrix.powershell }}
+        shell: pwsh
+        run: |
+          Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+          Write-Host "OS: $($PSVersionTable.OS)"
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+          Import-Module Pester
+          Write-Host "Pester version: $((Get-Module Pester).Version)"
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests/unit'
+          $config.Run.ExcludePath = './tests/fixtures'
+          $config.Output.Verbosity = 'Detailed'
+          $config.Output.CIFormat = 'GitHubActions'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './tests/unit-results.xml'
+          $config.CodeCoverage.Enabled = $true
+          $config.CodeCoverage.Path = './scripts'
+          $config.CodeCoverage.OutputFormat = 'JaCoCo'
+          $config.CodeCoverage.OutputPath = './tests/unit-coverage.xml'
+
+          Invoke-Pester -Configuration $config
+
+      - name: Run integration tests
+        if: env.FAL_KEY != ''
+        shell: pwsh
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests/integration'
+          $config.Run.ExcludePath = './tests/fixtures'
+          $config.Output.Verbosity = 'Detailed'
+          $config.Output.CIFormat = 'GitHubActions'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './tests/integration-results.xml'
+
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-ps${{ matrix.powershell }}
+          path: |
+            tests/unit-results.xml
+            tests/integration-results.xml
+          retention-days: 30
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-ps${{ matrix.powershell }}
+          path: tests/unit-coverage.xml
+          retention-days: 30

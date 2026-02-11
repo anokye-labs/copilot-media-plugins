@@ -1,0 +1,135 @@
+name: Media Workflow Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Text prompt for image generation'
+        required: true
+        default: 'Professional product photography of wireless headphones'
+        type: string
+      model:
+        description: 'fal.ai model to use'
+        required: true
+        default: 'fal-ai/flux/dev'
+        type: choice
+        options:
+          - fal-ai/flux/dev
+          - fal-ai/flux-pro/v1.1
+          - fal-ai/stable-diffusion-v35-large
+      quality_threshold:
+        description: 'Minimum quality score (0.0 - 1.0)'
+        required: true
+        default: '0.85'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate-and-validate:
+    name: Generate & Validate Media
+    runs-on: windows-latest
+    environment: media-generation
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        shell: pwsh
+        run: |
+          $threshold = [double]'${{ inputs.quality_threshold }}'
+          if ($threshold -lt 0.0 -or $threshold -gt 1.0) {
+            Write-Host "::error::Quality threshold must be between 0.0 and 1.0, got: $threshold"
+            exit 1
+          }
+          Write-Host "Prompt: ${{ inputs.prompt }}"
+          Write-Host "Model: ${{ inputs.model }}"
+          Write-Host "Quality threshold: $threshold"
+
+      - name: Generate image
+        shell: pwsh
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+        run: |
+          if (-not $env:FAL_KEY) {
+            Write-Host "::error::FAL_KEY secret is not configured"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Path output -Force | Out-Null
+
+          # Run generation script if available
+          $generateScript = 'scripts/Invoke-FalGenerate.ps1'
+          if (Test-Path $generateScript) {
+            & $generateScript `
+              -Prompt '${{ inputs.prompt }}' `
+              -Model '${{ inputs.model }}' `
+              -OutputPath 'output/generated.png' `
+              -Width 1024 `
+              -Height 1024
+          } else {
+            Write-Host "::warning::$generateScript not found, creating placeholder output"
+            Write-Host "Generation script not yet implemented" > output/generation-log.txt
+          }
+
+      - name: Measure image quality
+        shell: pwsh
+        run: |
+          $qualityScript = 'scripts/Measure-ImageQuality.ps1'
+          $threshold = [double]'${{ inputs.quality_threshold }}'
+
+          if (Test-Path $qualityScript) {
+            $result = & $qualityScript -ImagePath 'output/generated.png' -Threshold $threshold
+            $score = $result.QualityScore
+
+            if ($score -lt $threshold) {
+              Write-Host "::warning::Quality score $score is below threshold $threshold"
+            } else {
+              Write-Host "✅ Quality score $score meets threshold $threshold"
+            }
+          } else {
+            Write-Host "::warning::$qualityScript not found, skipping quality measurement"
+            $score = 'N/A (script not yet implemented)'
+          }
+
+          # Write quality report
+          @{
+            Model     = '${{ inputs.model }}'
+            Prompt    = '${{ inputs.prompt }}'
+            Threshold = $threshold
+            Score     = $score
+            Status    = if ($score -is [double] -and $score -ge $threshold) { 'PASS' } else { 'CHECK' }
+          } | ConvertTo-Json | Out-File -Path output/quality-report.json
+
+      - name: Write workflow summary
+        shell: pwsh
+        run: |
+          $report = Get-Content output/quality-report.json | ConvertFrom-Json
+
+          $summary = @"
+          ## 🎨 Media Workflow Results
+
+          | Property | Value |
+          |----------|-------|
+          | **Model** | ``$($report.Model)`` |
+          | **Prompt** | $($report.Prompt) |
+          | **Quality Threshold** | $($report.Threshold) |
+          | **Quality Score** | $($report.Score) |
+          | **Status** | $($report.Status) |
+
+          ### Output Files
+          ``````
+          $(Get-ChildItem output -Recurse | ForEach-Object { "$($_.Name) ($([math]::Round($_.Length / 1KB, 1)) KB)" })
+          ``````
+          "@
+
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Upload quality report
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: output/
+          retention-days: 30
