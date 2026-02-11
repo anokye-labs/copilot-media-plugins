@@ -20,16 +20,16 @@ Describe 'Validation: Agent Orchestration Patterns' {
 
     Context 'Fleet pattern: dispatch 3 generators in parallel' {
         It 'Should dispatch multiple generation requests and collect all results' {
-            $script:callIndex = 0
+            $global:fleetCallIdx = 0
             Mock Invoke-RestMethod {
-                $script:callIndex++
+                $global:fleetCallIdx++
                 return [PSCustomObject]@{
                     images = @([PSCustomObject]@{
-                        url    = "https://fal.ai/output/fleet-$($script:callIndex).png"
+                        url    = "https://fal.ai/output/fleet-$($global:fleetCallIdx).png"
                         width  = 1024
                         height = 1024
                     })
-                    seed = $script:callIndex * 100
+                    seed = $global:fleetCallIdx * 100
                 }
             } -ModuleName FalAi
 
@@ -41,7 +41,6 @@ Describe 'Validation: Agent Orchestration Patterns' {
                     'A dense forest in autumn'
                 )
 
-                # Simulate parallel dispatch by collecting jobs
                 $jobs = @()
                 foreach ($prompt in $prompts) {
                     $result = & $script:generateScript -Prompt $prompt -Model 'fal-ai/flux/dev'
@@ -55,7 +54,6 @@ Describe 'Validation: Agent Orchestration Patterns' {
                     $_.Images[0].Width | Should -Be 1024
                 }
 
-                # All results should have unique URLs
                 $urls = $jobs | ForEach-Object { $_.Images[0].Url }
                 ($urls | Select-Object -Unique).Count | Should -Be 3
             }
@@ -63,19 +61,19 @@ Describe 'Validation: Agent Orchestration Patterns' {
         }
 
         It 'Should handle partial fleet failure without losing successful results' {
-            $script:fleetCall = 0
+            $global:partialFleetCall = 0
             Mock Invoke-RestMethod {
-                $script:fleetCall++
-                if ($script:fleetCall -eq 2) {
+                $global:partialFleetCall++
+                if ($global:partialFleetCall -eq 2) {
                     throw [System.Net.WebException]::new('The remote server returned an error: (500) Internal Server Error.')
                 }
                 return [PSCustomObject]@{
                     images = @([PSCustomObject]@{
-                        url    = "https://fal.ai/output/partial-$($script:fleetCall).png"
+                        url    = "https://fal.ai/output/partial-$($global:partialFleetCall).png"
                         width  = 1024
                         height = 1024
                     })
-                    seed = $script:fleetCall
+                    seed = $global:partialFleetCall
                 }
             } -ModuleName FalAi
 
