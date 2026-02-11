@@ -1,0 +1,7 @@
+# Code Owners for copilot-media-plugins
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+skills/   @anokye-labs
+scripts/  @anokye-labs
+docs/     @anokye-labs
+.github/  @anokye-labs
