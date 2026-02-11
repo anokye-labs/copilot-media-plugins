@@ -34,6 +34,7 @@ out/
 *.log
 
 # Secrets
+secrets/
 secrets.json
 *.key
 *.pem
@@ -45,7 +46,11 @@ coverage/
 test-results/
 *.test.log
 
+# Generated output
+output/
+
 # Temporary files
+temp/
 *.tmp
 *.temp
 .cache/
