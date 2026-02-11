@@ -141,6 +141,73 @@ Invoke-Pester -Path tests/ -Output Detailed
 | `chore/` | Maintenance tasks | `chore/update-deps` |
 | `ci/` | CI/CD changes | `ci/add-lint-workflow` |
 
+## Script Conventions
+
+All scripts in `scripts/` must follow these conventions:
+
+1. **Comment-based help** — Every `.ps1` file must include `.SYNOPSIS`, `.DESCRIPTION`, `.PARAMETER`, and `.EXAMPLE` blocks.
+2. **CmdletBinding** — All scripts must use `[CmdletBinding()]` and declare parameters with `[Parameter()]` attributes.
+3. **Import shared module** — Scripts that call fal.ai APIs must import the shared module:
+   ```powershell
+   Import-Module "$PSScriptRoot/FalAi.psm1" -Force
+   ```
+4. **OutputType** — Declare `[OutputType()]` on all scripts and exported functions.
+5. **Approved verbs** — Use PowerShell approved verbs (`Get-`, `Invoke-`, `New-`, `Test-`, `Measure-`, `Search-`, `Upload-`).
+6. **Error handling** — Use `try/catch` with `ErrorAction Stop`; surface errors via `Write-Error`.
+
+## Test Requirements
+
+All new scripts and features require tests:
+
+- **Unit tests are mandatory** — Place in `tests/unit/<ScriptName>.Tests.ps1`.
+- **Pester 5 syntax** — Use `Describe`, `Context`, `It`, `Should`, `BeforeAll`, `BeforeEach`.
+- **Mock external APIs** — Never make live API calls in unit tests. Use `Mock` for `Invoke-RestMethod` and `Invoke-WebRequest`.
+- **Naming** — Test files must end in `.Tests.ps1`.
+- **Run before submitting** — All unit tests must pass: `Invoke-Pester -Path tests/unit/`.
+- **Gate tests** — If adding structural elements (skills, references), add or update gate tests in `tests/gates/`.
+
+Example test structure:
+
+```powershell
+Describe 'Invoke-FalGenerate' {
+    BeforeAll {
+        Import-Module "$PSScriptRoot/../../scripts/FalAi.psm1" -Force
+        Mock Invoke-RestMethod { return @{ images = @(@{ url = 'https://example.com/img.png' }) } }
+    }
+
+    It 'Should return an image URL' {
+        $result = & "$PSScriptRoot/../../scripts/Invoke-FalGenerate.ps1" -Prompt 'test'
+        $result.images[0].url | Should -Match 'https://'
+    }
+}
+```
+
+## Skill File Guidelines
+
+Skill definitions live in `skills/<skill-name>/SKILL.md`:
+
+- **Frontmatter required fields** — `name`, `description`, `metadata.author`, `metadata.version`.
+- **Line budget** — SKILL.md files must stay under 500 lines / 6500 tokens (validated by `TokenBudget.Tests.ps1`).
+- **References directory** — Large reference content goes in `skills/<skill-name>/references/*.md`, not in SKILL.md itself.
+- **Trigger phrases** — Include explicit trigger phrases in the `description` frontmatter so the skill router can match user intent.
+- **Format** — Use YAML frontmatter (`---`) followed by Markdown content with clear sections for capabilities, usage patterns, and examples.
+
+## Evaluation
+
+To add new quality metrics or golden prompt tests:
+
+1. **Add measurement script** — Create `scripts/Measure-<Metric>.ps1` following script conventions above.
+2. **Add evaluation test** — Create `tests/evaluation/<Metric>.Tests.ps1` that validates thresholds.
+3. **Update thresholds** — Add metric thresholds to `tests/fixtures/quality-thresholds.json`.
+4. **Golden prompts** — Add test prompts to `tests/fixtures/golden-prompts.json` with expected quality ranges.
+5. **Performance baselines** — Update `tests/fixtures/performance-baseline.json` when establishing new baselines.
+
+Run evaluation tests with:
+
+```powershell
+Invoke-Pester ./tests/evaluation/ -Output Detailed
+```
+
 ## Questions?
 
 Open a [discussion](https://github.com/anokye-labs/copilot-media-plugins/discussions) or file an issue if you have questions about contributing.
