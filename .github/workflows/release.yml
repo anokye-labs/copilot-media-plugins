@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser
+          Import-Module Pester
+          Write-Host "Pester version: $((Get-Module Pester).Version)"
+
+      - name: Run all tests
+        shell: pwsh
+        run: |
+          $configData = & './tests/.pester.ps1'
+          $config = New-PesterConfiguration -Hashtable $configData
+          $config.Run.Path = './tests/unit', './tests/gates'
+          $config.TestResult.OutputPath = './tests/release-results.xml'
+          $config.CodeCoverage.OutputPath = './tests/release-coverage.xml'
+
+          $result = Invoke-Pester -Configuration $config -PassThru
+
+          # Write test summary for release notes
+          $summary = @{
+            TotalTests  = $result.TotalCount
+            Passed      = $result.PassedCount
+            Failed      = $result.FailedCount
+            Skipped     = $result.SkippedCount
+            Duration    = $result.Duration.ToString()
+          }
+          $summary | ConvertTo-Json | Out-File -Path './tests/test-summary.json'
+
+          if ($result.FailedCount -gt 0) {
+            Write-Host "::error::$($result.FailedCount) test(s) failed"
+            exit 1
+          }
+          Write-Host "✅ All $($result.PassedCount) tests passed"
+
+      - name: Generate changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          Write-Host "Building changelog for $tag"
+
+          # Find previous tag
+          $tags = git tag --sort=-v:refname | Where-Object { $_ -ne $tag }
+          $previousTag = if ($tags) { $tags[0] } else { $null }
+
+          if ($previousTag) {
+            Write-Host "Changes since $previousTag"
+            $range = "$previousTag..$tag"
+          } else {
+            Write-Host "First release — including all commits"
+            $range = $tag
+          }
+
+          $commits = git log $range --pretty=format:'%h %s' --no-merges
+          $grouped = @{
+            Features = @()
+            Fixes    = @()
+            Docs     = @()
+            CI       = @()
+            Other    = @()
+          }
+
+          foreach ($line in $commits) {
+            if ($line -match '^(\w+)\s+feat') { $grouped.Features += $line }
+            elseif ($line -match '^(\w+)\s+fix') { $grouped.Fixes += $line }
+            elseif ($line -match '^(\w+)\s+docs') { $grouped.Docs += $line }
+            elseif ($line -match '^(\w+)\s+ci') { $grouped.CI += $line }
+            else { $grouped.Other += $line }
+          }
+
+          $changelog = @()
+          if ($grouped.Features) {
+            $changelog += "### ✨ Features"
+            $grouped.Features | ForEach-Object { $changelog += "- $_" }
+            $changelog += ""
+          }
+          if ($grouped.Fixes) {
+            $changelog += "### 🐛 Bug Fixes"
+            $grouped.Fixes | ForEach-Object { $changelog += "- $_" }
+            $changelog += ""
+          }
+          if ($grouped.Docs) {
+            $changelog += "### 📚 Documentation"
+            $grouped.Docs | ForEach-Object { $changelog += "- $_" }
+            $changelog += ""
+          }
+          if ($grouped.CI) {
+            $changelog += "### 🔧 CI/CD"
+            $grouped.CI | ForEach-Object { $changelog += "- $_" }
+            $changelog += ""
+          }
+          if ($grouped.Other) {
+            $changelog += "### 📦 Other"
+            $grouped.Other | ForEach-Object { $changelog += "- $_" }
+            $changelog += ""
+          }
+
+          $changelogText = $changelog -join "`n"
+          $changelogText | Out-File -Path './CHANGELOG-RELEASE.md' -Encoding utf8
+
+      - name: Build release notes
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $changelog = Get-Content './CHANGELOG-RELEASE.md' -Raw
+          $testSummary = Get-Content './tests/test-summary.json' | ConvertFrom-Json
+
+          $notes = @"
+          ## $tag
+
+          $changelog
+
+          ### 🧪 Test Summary
+
+          | Metric | Value |
+          |--------|-------|
+          | Total Tests | $($testSummary.TotalTests) |
+          | ✅ Passed | $($testSummary.Passed) |
+          | ❌ Failed | $($testSummary.Failed) |
+          | ⏭️ Skipped | $($testSummary.Skipped) |
+          | Duration | $($testSummary.Duration) |
+          "@
+
+          $notes | Out-File -Path './RELEASE-NOTES.md' -Encoding utf8
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-results-${{ github.ref_name }}
+          path: |
+            tests/release-results.xml
+            tests/release-coverage.xml
+            tests/test-summary.json
+          retention-days: 90
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const notes = fs.readFileSync('RELEASE-NOTES.md', 'utf8');
+            const tag = '${{ github.ref_name }}';
+
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Copilot Media Plugins ${tag}`,
+              body: notes,
+              draft: false,
+              prerelease: tag.includes('-')
+            });
+
+            core.info(`Release created: ${release.data.html_url}`);
+
+            // Attach test summary as release asset
+            const summaryContent = fs.readFileSync('tests/test-summary.json');
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              name: 'test-summary.json',
+              data: summaryContent
+            });
