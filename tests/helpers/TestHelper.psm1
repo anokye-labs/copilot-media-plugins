@@ -117,9 +117,112 @@ function Get-TestFixturePath {
     return (Resolve-Path $fullPath).Path
 }
 
+function New-MockMcpResponse {
+    <#
+    .SYNOPSIS
+        Creates a mock MCP tool response for testing.
+    .PARAMETER ToolName
+        The MCP tool name (e.g., 'get_metainfo', 'resize').
+    .PARAMETER Result
+        The result object to return.
+    .PARAMETER IsError
+        Whether to simulate an error response.
+    .PARAMETER ErrorMessage
+        Error message when IsError is true.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ToolName,
+        [object]$Result = @{},
+        [switch]$IsError,
+        [string]$ErrorMessage = 'Tool execution failed'
+    )
+
+    if ($IsError) {
+        return [PSCustomObject]@{
+            tool   = $ToolName
+            error  = $ErrorMessage
+            result = $null
+        }
+    }
+
+    return [PSCustomObject]@{
+        tool   = $ToolName
+        error  = $null
+        result = $Result
+    }
+}
+
+function New-MockImageMetainfo {
+    <#
+    .SYNOPSIS
+        Creates a mock get_metainfo response.
+    #>
+    [CmdletBinding()]
+    param(
+        [int]$Width = 1024,
+        [int]$Height = 768,
+        [string]$Format = 'PNG',
+        [long]$FileSize = 524288,
+        [string]$InputPath = '/images/test.png'
+    )
+
+    return New-MockMcpResponse -ToolName 'get_metainfo' -Result ([PSCustomObject]@{
+        input_path = $InputPath
+        width      = $Width
+        height     = $Height
+        format     = $Format
+        file_size  = $FileSize
+        mode       = 'RGB'
+        has_alpha  = $false
+    })
+}
+
+function New-MockDetectionResult {
+    <#
+    .SYNOPSIS
+        Creates a mock detect/find response.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$InputPath = '/images/test.png',
+        [hashtable[]]$Objects = @(
+            @{ class_name = 'person'; confidence = 0.92; bbox = @(120, 50, 380, 400) }
+        )
+    )
+
+    return New-MockMcpResponse -ToolName 'detect' -Result ([PSCustomObject]@{
+        input_path = $InputPath
+        objects    = $Objects
+    })
+}
+
+function New-MockImageFile4x4 {
+    <#
+    .SYNOPSIS
+        Creates a minimal 4x4 pixel RGBA PNG file for richer testing.
+    .PARAMETER Path
+        The file path to write the test image to.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    # Use the 1x1 helper but provide a path — for testing scripts that just
+    # need a valid PNG header, this is sufficient.
+    return New-MockImageFile -Path $Path
+}
+
 Export-ModuleMember -Function @(
     'New-MockFalApiResponse'
     'New-MockImageFile'
+    'New-MockImageFile4x4'
+    'New-MockMcpResponse'
+    'New-MockImageMetainfo'
+    'New-MockDetectionResult'
     'Assert-FileStructure'
     'Get-TestFixturePath'
 )
